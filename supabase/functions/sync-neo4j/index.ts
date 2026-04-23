@@ -53,6 +53,10 @@ Deno.serve(async (req) => {
     return json({ error: 'Neo4j credentials are not configured' }, 500);
   }
 
+  if (!/^(neo4j|bolt)(\+s|\+ssc)?:\/\//.test(uri)) {
+    return json({ error: 'NEO4J_URI must start with neo4j+s://, neo4j://, bolt+s://, or bolt://' }, 500);
+  }
+
   let payload: unknown;
   try {
     payload = await req.json();
