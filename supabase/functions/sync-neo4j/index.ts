@@ -2,7 +2,7 @@ import neo4j from 'npm:neo4j-driver@5.28.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
 type SymptomInput = { id: string; name: string; severity: number };
@@ -21,9 +21,9 @@ type SyncPayload = {
   };
 };
 
-const json = (body: unknown, status = 200) =>
+const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 
@@ -43,29 +43,29 @@ const isValidPayload = (body: unknown): body is SyncPayload => {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  if (req.method !== 'POST') return json({ ok: false, error: 'Method not allowed' });
 
   const uri = Deno.env.get('NEO4J_URI');
   const username = Deno.env.get('NEO4J_USERNAME');
   const password = Deno.env.get('NEO4J_PASSWORD');
 
   if (!uri || !username || !password) {
-    return json({ error: 'Neo4j credentials are not configured' }, 500);
+    return json({ ok: false, error: 'Neo4j credentials are not configured' });
   }
 
   if (!/^(neo4j|bolt)(\+s|\+ssc)?:\/\//.test(uri)) {
-    return json({ error: 'NEO4J_URI must start with neo4j+s://, neo4j://, bolt+s://, or bolt://' }, 500);
+    return json({ ok: false, error: 'NEO4J_URI must start with neo4j+s://, neo4j://, bolt+s://, or bolt://' });
   }
 
   let payload: unknown;
   try {
     payload = await req.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, 400);
+    return json({ ok: false, error: 'Invalid JSON body' });
   }
 
   if (!isValidPayload(payload)) {
-    return json({ error: 'Invalid graph payload' }, 400);
+    return json({ ok: false, error: 'Invalid graph payload' });
   }
 
   const patientId = `app_${crypto.randomUUID()}`;
@@ -128,6 +128,7 @@ Deno.serve(async (req) => {
     );
 
     return json({
+      ok: true,
       patientId,
       message: 'Graph created in Neo4j',
       cypherToView: `MATCH (p:Patient {id: '${patientId}'})-[r]-(n) RETURN p, r, n`,
@@ -135,7 +136,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Neo4j error';
     console.error('Neo4j sync failed:', message);
-    return json({ error: `Neo4j sync failed: ${message}` }, 500);
+    return json({ ok: false, error: `Neo4j sync failed: ${message}` });
   } finally {
     await session.close();
     await driver.close();
