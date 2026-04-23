@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, CheckCircle2, ChevronRight, Pill, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, DatabaseZap, Pill, Sparkles, X } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { RiskGauge } from '@/components/RiskGauge';
 import { DISEASES, SYMPTOMS, treatmentById, symptomById } from '@/data/medical';
 import { detectMisdiagnosis, predictDiseases, similarPatients } from '@/lib/graph-engine';
+import { supabase } from '@/integrations/supabase/client';
 
 const SAMPLES = [
   { label: 'COVID-like', ids: ['s_fever', 's_cough', 's_loss_smell', 's_fatigue'] },
@@ -17,6 +18,8 @@ export default function Predict() {
   const [selected, setSelected] = useState<string[]>([]);
   const [age, setAge] = useState(45);
   const [proposed, setProposed] = useState<string>('');
+  const [neo4jStatus, setNeo4jStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [neo4jMessage, setNeo4jMessage] = useState('');
 
   const predictions = useMemo(() => predictDiseases(selected, age), [selected, age]);
   const similar = useMemo(() => similarPatients(selected, 5), [selected]);
@@ -27,6 +30,36 @@ export default function Predict() {
 
   const toggle = (id: string) =>
     setSelected(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]));
+
+  const syncToNeo4j = async () => {
+    if (!predictions[0]) return;
+    setNeo4jStatus('syncing');
+    setNeo4jMessage('');
+
+    const top = predictions[0];
+    const { data, error } = await supabase.functions.invoke('sync-neo4j', {
+      body: {
+        age,
+        symptoms: selected.map(id => symptomById(id)),
+        prediction: {
+          disease: top.disease,
+          score: top.score,
+          riskScore: top.riskScore,
+          riskLevel: top.riskLevel,
+          treatments: top.disease.treatments.map(treatmentById),
+        },
+      },
+    });
+
+    if (error) {
+      setNeo4jStatus('error');
+      setNeo4jMessage(error.message);
+      return;
+    }
+
+    setNeo4jStatus('success');
+    setNeo4jMessage(data?.cypherToView || 'Graph created in Neo4j Browser.');
+  };
 
   return (
     <AppShell>
@@ -191,6 +224,28 @@ export default function Predict() {
                           ))}
                         </ul>
                       </div>
+                    </div>
+
+                    <div className="mt-6 pt-5 border-t border-border/60">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                          <div className="text-xs uppercase tracking-widest text-primary mono">Neo4j Sync</div>
+                          <p className="text-sm text-muted-foreground mt-1">Create this exact patient → symptom → diagnosis graph in Neo4j Browser.</p>
+                        </div>
+                        <button
+                          onClick={syncToNeo4j}
+                          disabled={neo4jStatus === 'syncing'}
+                          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-glow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <DatabaseZap className="h-4 w-4" />
+                          {neo4jStatus === 'syncing' ? 'Creating...' : 'Create in Neo4j'}
+                        </button>
+                      </div>
+                      {neo4jMessage && (
+                        <div className={`mt-3 rounded-lg border p-3 text-xs mono ${neo4jStatus === 'success' ? 'border-success/40 bg-success/10 text-success' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
+                          {neo4jStatus === 'success' ? 'Neo4j view query: ' : ''}{neo4jMessage}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 )}
