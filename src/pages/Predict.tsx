@@ -57,6 +57,12 @@ export default function Predict() {
       return;
     }
 
+    if (data?.ok === false) {
+      setNeo4jStatus('error');
+      setNeo4jMessage(data.error || 'Neo4j sync failed.');
+      return;
+    }
+
     setNeo4jStatus('success');
     setNeo4jMessage(data?.cypherToView || 'Graph created in Neo4j Browser.');
   };
